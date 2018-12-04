@@ -1,0 +1,107 @@
+###### Before you run this script:
+# change the drive letter to your own local drive.  
+# download GRIP data for your region from GIresearch/SDG_9_1_1/GRIP/GRIP_raw and place it in the Data folder within sdg_911_R. Unzip it into the default folder and delete the zip file.
+
+
+# Set your working directory
+setwd("D:/sdg_911_R")
+
+
+#### set library to local
+local<-"D:/sdg_911_R/R_LIB"
+default<-.libPaths()
+new<-c(local,default)
+.libPaths(new)
+
+library(raster)
+library(sf)
+library(dplyr)
+library(rgdal)
+library(rgeos)
+
+# Load a numerical ISO to 3-letter iso code lookup
+lookup<-read.csv("Data/ISO1-ISO3-lookup.csv",header=TRUE,sep=",",stringsAsFactors = FALSE)
+
+# Load previously downloaded Global data
+
+GHS_POP_RURAL<-raster("Data/GHS_POP_RURAL.tif")
+
+####### Change Region Number in both fields ################
+GRIP_ISO<-st_read("Data/GRIP4_Region6_vector_shp/GRIP4_region6.shp")%>%inner_join(lookup,by=c("GP_RCY"="ISO1"))
+
+
+COUNTRY_IMPORT<-function(ISO){
+  readRDS(paste("Data/GADM/GADM_2.8_",ISO,"_adm0.rds",sep=""))%>%
+    st_as_sf
+}
+
+region_countries<-unique(GRIP_ISO$ISO3)
+
+country_list<-as.list(region_countries)
+
+####### Run to check if countries from GRIP are present in the GADM folder
+####### If you get an error remove that country from region_countries and country_list
+####### If all good then proceed
+check<-lapply(country_list,COUNTRY_IMPORT)
+
+
+###### function to calculate SDG - run but do not modify
+calculate_SDG<-function(ISO){
+  COUNTRY_SP<-readRDS(paste("Data/GADM/GADM_2.8_",ISO,"_adm0.rds",sep=""))%>%
+    st_as_sf%>%
+    dplyr::select(ISO)%>%
+    st_transform(proj4string(GHS_POP_RURAL))
+  
+  buffer<-GRIP_ISO %>%
+    filter(ISO3 == ISO) %>%
+    st_transform(proj4string(GHS_POP_RURAL)) %>%
+    st_buffer(dist=2000) %>%
+    st_union(by_feature=FALSE)%>%
+    st_intersection(COUNTRY_SP)                                                                       
+  
+  COUNTRY_SP<-as(COUNTRY_SP,"Spatial")
+  buffer<-as(buffer,"Spatial")
+  
+  TOTAL_RURAL_POP<-raster::extract(GHS_POP_RURAL,COUNTRY_SP,fun=sum)
+  BUFFER_RURAL_POP<-raster::extract(GHS_POP_RURAL,buffer,fun=sum)
+  SDG_9.1.1<-100*(BUFFER_RURAL_POP/TOTAL_RURAL_POP)
+  
+}
+########### Run script below to calculate SDG 9.1.1 for each country in your region.
+start<-Sys.time()
+Sys.time()
+
+calculations<-lapply(country_list,calculate_SDG)
+final<-data.frame(ISO=country_list)
+final$sdg<-unlist(calculations)
+
+end<-Sys.time()
+length_of_process<-end-start
+print(length_of_process)
+
+
+################### To run 1 country at a time ###############################################################
+# Follow above instructions up to the calculate SDG function part to load your data and libraries
+# Next run the script below making sure to insert the 3 letter ISO code in capitals into the "ISO" field in the first line of the script and at the end of the script into SDG_9.1.1_ISO part
+# e.g COUNTRY_SP<-readRDS(paste("Data/GADM/GADM_2.8_","GBR","_adm0.rds",sep=""))%>% to run it for GBR
+# e.g SDG_9.1.1_GBR to save GBR SDG indicator
+# copy and paste the results into a spreadsheet and save.
+
+COUNTRY_SP<-readRDS(paste("Data/GADM/GADM_2.8_","ISO","_adm0.rds",sep=""))%>%
+    st_as_sf%>%
+    dplyr::select(ISO)%>%
+    st_transform(proj4string(GHS_POP_RURAL))
+  
+  buffer<-GRIP_ISO %>%
+    filter(ISO3 == ISO) %>%
+    st_transform(proj4string(GHS_POP_RURAL)) %>%
+    st_buffer(dist=2000) %>%
+    st_union(by_feature=FALSE)%>%
+    st_intersection(COUNTRY_SP)                                                                       
+  
+  COUNTRY_SP<-as(COUNTRY_SP,"Spatial")
+  buffer<-as(buffer,"Spatial")
+  
+  TOTAL_RURAL_POP<-raster::extract(GHS_POP_RURAL,COUNTRY_SP,fun=sum)
+  BUFFER_RURAL_POP<-raster::extract(GHS_POP_RURAL,buffer,fun=sum)
+  SDG_9.1.1_ISO<-100*(BUFFER_RURAL_POP/TOTAL_RURAL_POP)
